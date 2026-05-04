@@ -1,0 +1,208 @@
+# Code Agent 配置文件示例
+# 复制此文件为 config.yaml 并填入你的实际配置
+# config.yaml 已被 .gitignore 忽略，不会提交到 Git
+
+# LLM 配置
+llm:
+  # API 基础地址
+  base_url: "https://api.openai.com/v1"
+
+  # API 密钥 - 使用环境变量（推荐）
+  # 设置环境变量: export OPENAI_API_KEY=your-key-here
+  api_key: "${OPENAI_API_KEY}"
+
+  # 模型名称
+  model_name: "gpt-4o"
+
+  # 采样温度 (0.0 - 2.0)
+  temperature: 0.2
+
+  # 最大生成 token 数
+  max_tokens: 4096
+
+  # 请求超时时间（秒）
+  timeout: 60
+
+  # 最大重试次数
+  max_retries: 3
+
+# Agent 行为配置
+agent:
+  system_prompt: null
+  max_iterations: 15
+  verbose: false
+  auto_confirm: false
+  context_window: 20
+  context_token_limit: 120000
+  auto_compact_token_ratio: 0.85
+  max_tool_result_chars: 12000
+  persistent_memory_enabled: true
+  persistent_memory_path: ".code_agent_memory.md"
+  persistent_memory_dir: ".code-agent/memory"
+  persistent_memory_max_chars: 12000
+  auto_dream_enabled: true
+  auto_dream_min_messages: 14
+  lazy_tool_loading_enabled: true
+  max_active_tools: 18
+  always_active_tools:
+    - tool_search
+    - read_file
+    - list_directory
+    - grep
+    - glob
+    - bash
+    - lsp_tool
+    - discover_skills
+    - use_skill
+  poor_mode: false
+  poor_mode_path: ".code-agent/runtime.yaml"
+  transcript_enabled: true
+  transcript_dir: ".code-agent/transcripts"
+  transcript_max_event_chars: 20000
+  permission_settings_path: ".code-agent/settings.yaml"
+  hook_settings_path: ".code-agent/hooks.yaml"
+  plan_store_path: ".code-agent/approved_plan.md"
+  buddy_settings_path: ".code-agent/buddy.yaml"
+  mcp_config_path: ".code-agent/mcp.yaml"
+  skills_dir: ".code-agent/skills"
+  commands_dir: ".code-agent/commands"
+  workflows_dir: ".code-agent/workflows"
+  monitor_max_output_chars: 12000
+  project_instruction_files:
+    - "CODE_AGENT.md"
+    - ".code-agent/instructions.md"
+    - "CLAUDE.md"
+    - "AGENTS.md"
+  project_instruction_max_chars: 12000
+
+# Buddy 专用模型配置
+# 默认关闭；开启后只用于窗口右侧 Buddy 的一句情绪文案，不参与主 Agent 决策/工具/记忆。
+buddy:
+  enabled: false
+  # 留空表示复用 llm.base_url / llm.api_key / llm.model_name
+  base_url: ""
+  api_key: ""
+  model_name: ""
+  temperature: 0.9
+  max_tokens: 80
+  timeout: 8
+  max_retries: 0
+  proactive_enabled: true
+  proactive_interval_seconds: 90
+  proactive_min_idle_seconds: 45
+
+# Shell 执行配置
+shell:
+  workspace_root: "."
+  allowed_commands:
+    - git
+    - npm
+    - pnpm
+    - yarn
+    - node
+    - pip
+    - python
+    - python3
+    - pytest
+    - ruff
+    - mypy
+    - uv
+    - cargo
+    - rustc
+    - go
+    - make
+    - ls
+    - pwd
+    - cat
+    - sed
+    - rg
+    - grep
+    - find
+  blocked_commands:
+    - "rm -rf /"
+    - "rm -rf /*"
+    - "rm -rf ~"
+    - "rm -rf ."
+    - "sudo"
+    - "su "
+    - "chmod -R"
+    - "chown -R"
+    - "> /dev/sda"
+    - "mkfs"
+    - "dd if=/dev/zero"
+    - "shutdown"
+    - "reboot"
+  timeout: 30
+  require_confirmation: true
+  sandbox_enabled: true
+  sandbox_fail_if_unavailable: false
+  sandbox_allow_network: true
+  sandbox_writable_paths:
+    - "."
+  sandbox_readonly_paths: []
+  sandbox_deny_write_paths:
+    - ".git/config"
+    - ".code-agent/settings.yaml"
+    - ".code-agent/skills"
+    - ".code-agent/commands"
+    - "config.yaml"
+  sandbox_excluded_commands: []
+
+# 文件操作配置
+file:
+  workspace_root: "."
+  allow_absolute_paths: false
+  max_file_size: 1048576
+  allowed_extensions:
+    - ".py"
+    - ".js"
+    - ".ts"
+    - ".tsx"
+    - ".md"
+    - ".txt"
+    - ".json"
+    - ".yaml"
+    - ".yml"
+    - ".toml"
+    - ".rs"
+    - ".go"
+    - ".java"
+    - ".cpp"
+    - ".c"
+    - ".h"
+  blocked_paths:
+    - ".git"
+    - "node_modules"
+    - "__pycache__"
+    - ".venv"
+    - "venv"
+    - "dist"
+    - "build"
+    - ".idea"
+    - ".vscode"
+
+# 项目分析配置
+project:
+  workspace_root: "."
+  allow_absolute_paths: false
+  ignore_patterns:
+    - ".git"
+    - "node_modules"
+    - "__pycache__"
+    - ".idea"
+    - ".vscode"
+    - "*.pyc"
+    - "*.pyo"
+    - ".venv"
+    - "venv"
+    - "dist"
+    - "build"
+    - "target"
+    - ".pytest_cache"
+    - ".mypy_cache"
+  max_context_files: 20
+
+# MCP 配置
+mcp:
+  enabled: false
+  servers: {}
