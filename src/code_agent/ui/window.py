@@ -22,6 +22,7 @@ from prompt_toolkit.widgets import Box, Frame, Label, TextArea
 
 from code_agent.agent.core import CodeAgent
 from code_agent.tools.base import BaseTool, ToolResult
+from langchain_core.messages import HumanMessage
 from code_agent.ui.console import agent_console
 from code_agent.ui.commands import COMMAND_SPECS
 from code_agent.ui.completion import CodeAgentCompleter
@@ -559,10 +560,62 @@ class WindowedChatInterface:
                 self._append("system", self._handle_buddy_command(args))
         elif command == "/poor":
             self._append("system", self._toggle_poor_mode())
+        elif command == "/config":
+            self._append("system", self._config_report())
+        elif command in ("/allow", "/deny", "/allow-project", "/deny-project"):
+            self._add_permission_rule(command, args)
+        elif command == "/hooks":
+            self._append("system", self._hooks_report())
+        elif command == "/resume":
+            self._append("system", self._resume_session())
+        elif command == "/save":
+            self._append("system", self._save_session(args[0] if args else None))
+        elif command == "/cost":
+            self._append("system", self._cost_report())
+        elif command == "/memory":
+            self._append("system", self._memory_report())
+        elif command == "/doctor":
+            self._append("system", self._doctor_report())
         elif command == "/model" and args:
             self.agent.settings.llm.model_name = args[0]
             self.agent.llm = self.agent._create_llm()
             self._append("system", f"已切换模型：{args[0]}")
+        elif command == "/check-api":
+            self._append("system", "正在检查 API...")
+            try:
+                response = await self.agent.llm.ainvoke(
+                    [HumanMessage(content="Reply with exactly: OK")]
+                )
+                content = response.content if hasattr(response, "content") else str(response)
+                self._append("system", f"API 检查通过，模型 {self.agent.settings.llm.model_name} 返回：{content.strip()}")
+            except Exception as e:
+                self._append("system", f"API 检查失败：{type(e).__name__}: {e}")
+        elif command == "/models":
+            self._append("system", "正在获取模型列表...")
+            try:
+                from code_agent.utils.api_diagnostics import list_models, ModelListResult
+                result = list_models(
+                    base_url=self.agent.settings.llm.base_url,
+                    api_key=self.agent.settings.get_api_key(),
+                    timeout=min(self.agent.settings.llm.timeout, 30),
+                )
+                current = self.agent.settings.llm.model_name
+                rows = [
+                    {
+                        "Model ID": model,
+                        "当前": "是" if model == current else "",
+                    }
+                    for model in result.models
+                ]
+                lines = [f"来自 {result.base_url} 的模型（共 {len(result.models)} 个）："]
+                for model in result.models:
+                    marker = " ← 当前" if model == current else ""
+                    lines.append(f"  {model}{marker}")
+                if not result.contains(current):
+                    lines.append(f"\n警告：当前配置模型 {current} 未在列表中")
+                self._append("system", "\n".join(lines))
+            except Exception as e:
+                self._append("system", f"获取模型列表失败：{type(e).__name__}: {e}")
         elif await self._handle_project_command(command, args):
             pass
         else:
@@ -1375,6 +1428,126 @@ class WindowedChatInterface:
         self.agent.settings.agent.poor_mode = self.poor_mode.active
         self.input.buffer.complete_while_typing = to_filter(False)
         return self.poor_mode.render()
+
+    def _config_report(self) -> str:
+        from code_agent.ui.console import _format_bytes
+        s = self.agent.settings
+        rows = [
+            ("Base URL", s.llm.base_url),
+            ("模型", s.llm.model_name),
+            ("采样温度", s.llm.temperature),
+            ("最大输出 token", s.llm.max_tokens),
+            ("最大迭代次数", s.agent.max_iterations),
+            ("自动确认", s.agent.auto_confirm),
+            ("详细输出", s.agent.verbose),
+            ("上下文窗口", s.agent.context_window),
+            ("上下文 token 上限", s.agent.context_token_limit),
+            ("自动压缩比例", s.agent.auto_compact_token_ratio),
+            ("工具结果预算", f"{s.agent.max_tool_result_chars} 字符"),
+            ("持久化记忆", s.agent.persistent_memory_enabled),
+            ("穷鬼模式", "开" if s.agent.poor_mode else "关"),
+            ("记忆文件", s.agent.persistent_memory_path),
+            ("会话记录", s.agent.transcript_enabled),
+            ("Shell 超时", f"{s.shell.timeout}s"),
+            ("最大文件大小", _format_bytes(s.file.max_file_size)),
+        ]
+        return "\n".join(f"{k}: {v}" for k, v in rows)
+
+    def _add_permission_rule(self, command: str, args: list[str]) -> None:
+        if not args:
+            self._append("system", f"用法：{command} <工具名> [匹配内容]")
+            return
+        tool = args[0]
+        pattern = args[1] if len(args) > 1 else None
+        behavior = "allow" if "allow" in command else "deny"
+        project = command.endswith("-project")
+        self.agent.permission_manager.add_rule(
+            tool=tool,
+            behavior=behavior,
+            content=pattern,
+            project=project,
+        )
+        scope = "项目" if project else "本会话"
+        action = "允许" if behavior == "allow" else "拒绝"
+        self._append("system", f"已添加{scope}规则：{action} {tool} {pattern or ''}".strip())
+
+    def _hooks_report(self) -> str:
+        if not self.agent.hook_manager:
+            return "未加载 hook 文件。"
+        rows = self.agent.hook_manager.describe()
+        if not rows:
+            return f"{self.agent.hook_manager.path} 中没有配置 hook。"
+        return "\n".join(
+            f"{row.get('hook')}: {row.get('tool')} ({row.get('event')})"
+            for row in rows
+        )
+
+    def _resume_session(self) -> str:
+        from code_agent.utils.session import SessionManager
+        session_manager = SessionManager()
+        loaded = session_manager.load_auto_save(self.agent.memory)
+        if loaded:
+            return "已恢复上次会话"
+        else:
+            return "没有找到可恢复的会话"
+
+    def _save_session(self, name: str | None) -> str:
+        from code_agent.utils.session import SessionManager
+        session_manager = SessionManager()
+        session_manager.save(self.agent.memory, {"model": self.agent.settings.llm.model_name}, name)
+        return f"会话已保存：{name or 'auto_save'}"
+
+    def _cost_report(self) -> str:
+        from code_agent.utils.cost_tracker import CostTracker
+        tracker = CostTracker()
+        report = tracker.get_report()
+        lines = [str(report)]
+        return "\n".join(lines) if lines else "暂无费用统计"
+
+    def _memory_report(self) -> str:
+        rows = [
+            ("内存消息数", len(self.agent.memory.messages)),
+            ("摘要字符数", len(self.agent.memory.summary)),
+            ("持久化文件", self.persistent_memory.path if self.persistent_memory else "未启用"),
+            ("穷鬼模式", "开" if self.agent.settings.agent.poor_mode else "关"),
+        ]
+        lines = [f"{k}: {v}" for k, v in rows]
+        if self.agent.memory.summary:
+            lines.append(f"\n摘要：{self.agent.memory.summary}")
+        return "\n".join(lines)
+
+    def _doctor_report(self) -> str:
+        from code_agent.utils.api_diagnostics import list_models, ApiDiagnosticError
+        from code_agent.utils.context_report import build_context_report
+        s = self.agent.settings
+        rows = [
+            ("Base URL", s.llm.base_url),
+            ("模型", s.llm.model_name),
+            ("API key", self._mask_secret(s.get_api_key()) if s.get_api_key() else "missing"),
+            ("工具数", len(self.agent.tool_registry)),
+            ("估算上下文 token", self.agent.memory.estimate_tokens(
+                model=s.llm.model_name,
+                system_prompt=self.agent._build_system_prompt(),
+            )),
+            ("记忆文件", self.persistent_memory.path if self.persistent_memory else "未启用"),
+        ]
+        try:
+            result = list_models(
+                base_url=s.llm.base_url,
+                api_key=s.get_api_key(),
+                timeout=min(s.llm.timeout, 30),
+            )
+            rows.append(("服务商 /models", f"正常（{len(result.models)} 个模型）"))
+            rows.append(("当前模型在列表中", "是" if result.contains(s.llm.model_name) else "否"))
+        except ApiDiagnosticError as e:
+            rows.append(("服务商 /models", f"失败：{e}"))
+
+        return "\n".join(f"{k}: {v}" for k, v in rows)
+
+    def _mask_secret(self, value: str) -> str:
+        if len(value) <= 8:
+            return "*" * len(value)
+        return f"{value[:4]}...{value[-4:]}"
 
     def _skill_names(self) -> list[str]:
         return [
